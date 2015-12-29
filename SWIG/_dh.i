@@ -83,33 +83,37 @@ int dh_check(DH *dh) {
 }
 
 PyObject *dh_compute_key(DH *dh, PyObject *pubkey) {
-    const void *pkbuf;
-    int pklen, klen;
+    Py_buffer pkbuf;
+    int klen;
     void *key;
     BIGNUM *pk;
     PyObject *ret;
 
-    if (m2_PyObject_AsReadBufferInt(pubkey, &pkbuf, &pklen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(pubkey, &pkbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(pk = BN_mpi2bn((unsigned char *)pkbuf, pklen, NULL))) {
+    if (!(pk = BN_mpi2bn((unsigned char *)pkbuf.buf, pkbuf.len, NULL))) {
         PyErr_SetString(_dh_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(pubkey, &pkbuf);
         return NULL;
     }
     if (!(key = PyMem_Malloc(DH_size(dh)))) {
         BN_free(pk);
         PyErr_SetString(PyExc_MemoryError, "dh_compute_key");
+        m2_PyBuffer_Release(pubkey, &pkbuf);
         return NULL;
     }
     if ((klen = DH_compute_key((unsigned char *)key, pk, dh)) == -1) {
         BN_free(pk);
         PyMem_Free(key);
         PyErr_SetString(_dh_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(pubkey, &pkbuf);
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)key, klen);
     BN_free(pk);
     PyMem_Free(key);
+    m2_PyBuffer_Release(pubkey, &pkbuf);
     return ret;
 }
         
@@ -147,39 +151,41 @@ PyObject *dh_get_priv(DH *dh) {
 
 PyObject *dh_set_p(DH *dh, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)vbuf.buf, vbuf.len, NULL))) {
         PyErr_SetString(_dh_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (dh->p)
         BN_free(dh->p);
     dh->p = bn;
+    m2_PyBuffer_Release(value, &vbuf);
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 PyObject *dh_set_g(DH *dh, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)vbuf.buf, vbuf.len, NULL))) {
         PyErr_SetString(_dh_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (dh->g)
         BN_free(dh->g);
     dh->g = bn;
     Py_INCREF(Py_None);
+    m2_PyBuffer_Release(value, &vbuf);
     return Py_None;
 }
 %}

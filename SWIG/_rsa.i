@@ -120,18 +120,19 @@ PyObject *rsa_get_n(RSA *rsa) {
 
 PyObject *rsa_set_e(RSA *rsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &pybuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)pybuf.buf, pybuf.len, NULL))) {
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &pybuf);
         return NULL;
     }
     if (rsa->e)
         BN_free(rsa->e);
+    m2_PyBuffer_Release(value, &pybuf);
     rsa->e = bn;
     Py_INCREF(Py_None);
     return Py_None;
@@ -139,18 +140,19 @@ PyObject *rsa_set_e(RSA *rsa, PyObject *value) {
 
 PyObject *rsa_set_n(RSA *rsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &pybuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)pybuf.buf, pybuf.len, NULL))) {
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &pybuf);
         return NULL;
     }
     if (rsa->n)
         BN_free(rsa->n);
+    m2_PyBuffer_Release(value, &pybuf);
     rsa->n = bn;
     Py_INCREF(Py_None);
     return Py_None;
@@ -158,18 +160,19 @@ PyObject *rsa_set_n(RSA *rsa, PyObject *value) {
 
 PyObject *rsa_set_e_bin(RSA *rsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &pybuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_bin2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_bin2bn((unsigned char *)pybuf.buf, pybuf.len, NULL))) {
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &pybuf);
         return NULL;
     }
     if (rsa->e)
         BN_free(rsa->e);
+    m2_PyBuffer_Release(value, &pybuf);
     rsa->e = bn;
     Py_INCREF(Py_None);
     return Py_None;
@@ -177,178 +180,196 @@ PyObject *rsa_set_e_bin(RSA *rsa, PyObject *value) {
 
 PyObject *rsa_set_n_bin(RSA *rsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &pybuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_bin2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_bin2bn((unsigned char *)pybuf.buf, pybuf.len, NULL))) {
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &pybuf);
         return NULL;
     }
     if (rsa->n)
         BN_free(rsa->n);
+    m2_PyBuffer_Release(value, &pybuf);
     rsa->n = bn;
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 PyObject *rsa_private_encrypt(RSA *rsa, PyObject *from, int padding) {
-    const void *fbuf;
     void *tbuf;
-    int flen, tlen;
+    int tlen;
     PyObject *ret;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(from, &fbuf, &flen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(from, &pybuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
     if (!(tbuf = PyMem_Malloc(BN_num_bytes(rsa->n)))) {
         PyErr_SetString(PyExc_MemoryError, "rsa_private_encrypt");
+        m2_PyBuffer_Release(from, &pybuf);
         return NULL;
     }
-    tlen = RSA_private_encrypt(flen, (unsigned char *)fbuf, 
-        (unsigned char *)tbuf, rsa, padding);
+    tlen = RSA_private_encrypt(pybuf.len, (unsigned char *)pybuf.buf,
+                               (unsigned char *)tbuf, rsa, padding);
     if (tlen == -1) {
         PyMem_Free(tbuf);
+        m2_PyBuffer_Release(from, &pybuf);
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)tbuf, tlen);
     PyMem_Free(tbuf);
+    m2_PyBuffer_Release(from, &pybuf);
     return ret;
 }
 
 PyObject *rsa_public_decrypt(RSA *rsa, PyObject *from, int padding) {
-    const void *fbuf;
     void *tbuf;
-    int flen, tlen;
+    int tlen;
     PyObject *ret;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(from, &fbuf, &flen) == -1)
+    if (m2_PyObject_GetBufferInt(from, &pybuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
     if (!(tbuf = PyMem_Malloc(BN_num_bytes(rsa->n)))) {
         PyErr_SetString(PyExc_MemoryError, "rsa_public_decrypt");
+        m2_PyBuffer_Release(from, &pybuf);
         return NULL;
     }
-    tlen = RSA_public_decrypt(flen, (unsigned char *)fbuf, 
-        (unsigned char *)tbuf, rsa, padding);
+    tlen = RSA_public_decrypt(pybuf.len, (unsigned char *)pybuf.buf,
+                              (unsigned char *)tbuf, rsa, padding);
     if (tlen == -1) {
         PyMem_Free(tbuf);
+        m2_PyBuffer_Release(from, &pybuf);
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)tbuf, tlen);
     PyMem_Free(tbuf);
+    m2_PyBuffer_Release(from, &pybuf);
     return ret;
 }
 
 PyObject *rsa_public_encrypt(RSA *rsa, PyObject *from, int padding) {
-    const void *fbuf;
     void *tbuf;
-    int flen, tlen;
+    int tlen;
     PyObject *ret;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(from, &fbuf, &flen) == -1)
+    if (m2_PyObject_GetBufferInt(from, &pybuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
     if (!(tbuf = PyMem_Malloc(BN_num_bytes(rsa->n)))) {
         PyErr_SetString(PyExc_MemoryError, "rsa_public_encrypt");
+        m2_PyBuffer_Release(from, &pybuf);
         return NULL;
     }
-    tlen = RSA_public_encrypt(flen, (unsigned char *)fbuf, 
+    tlen = RSA_public_encrypt(pybuf.len, (unsigned char *)pybuf.buf, 
         (unsigned char *)tbuf, rsa, padding);
     if (tlen == -1) {
         PyMem_Free(tbuf);
+        m2_PyBuffer_Release(from, &pybuf);
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)tbuf, tlen);
     PyMem_Free(tbuf);
+    m2_PyBuffer_Release(from, &pybuf);
     return ret;
 }
 
 PyObject *rsa_private_decrypt(RSA *rsa, PyObject *from, int padding) {
-    const void *fbuf;
     void *tbuf;
-    int flen, tlen;
+    int tlen;
     PyObject *ret;
+    Py_buffer pybuf;
 
-    if (m2_PyObject_AsReadBufferInt(from, &fbuf, &flen) == -1)
+    if (m2_PyObject_GetBufferInt(from, &pybuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
     if (!(tbuf = PyMem_Malloc(BN_num_bytes(rsa->n)))) {
         PyErr_SetString(PyExc_MemoryError, "rsa_private_decrypt");
+        m2_PyBuffer_Release(from, &pybuf);
         return NULL;
     }
-    tlen = RSA_private_decrypt(flen, (unsigned char *)fbuf, 
-        (unsigned char *)tbuf, rsa, padding);
+    tlen = RSA_private_decrypt(pybuf.len, (unsigned char *)pybuf.buf, 
+                               (unsigned char *)tbuf, rsa, padding);
+
     if (tlen == -1) {
         PyMem_Free(tbuf);
+        m2_PyBuffer_Release(from, &pybuf);
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)tbuf, tlen);
     PyMem_Free(tbuf);
+    m2_PyBuffer_Release(from, &pybuf);
     return ret;
 }
 
 #if OPENSSL_VERSION_NUMBER >= 0x0090708fL
 PyObject *rsa_padding_add_pkcs1_pss(RSA *rsa, PyObject *digest, EVP_MD *hash, int salt_length) {
-    const void *dbuf;
     unsigned char *tbuf;
-    int dlen, result, tlen;
+    int result, tlen;
     PyObject *ret;
+    Py_buffer dbuf;
 
-    if (m2_PyObject_AsReadBufferInt(digest, &dbuf, &dlen) == -1)
+    if (m2_PyObject_GetBufferInt(digest, &dbuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
     tlen = RSA_size(rsa); 
 
     if (!(tbuf = OPENSSL_malloc(tlen))) {
         PyErr_SetString(PyExc_MemoryError, "rsa_padding_add_pkcs1_pss");
+        m2_PyBuffer_Release(digest, &dbuf);
         return NULL;
     }
     result = RSA_padding_add_PKCS1_PSS(
         rsa,
         tbuf,
-        (unsigned char *)dbuf,
+        (unsigned char *)dbuf.buf,
         hash,
         salt_length);
 
     if (result == -1) {
         OPENSSL_cleanse(tbuf, tlen);
         OPENSSL_free(tbuf);
+        m2_PyBuffer_Release(digest, &dbuf);
         PyErr_SetString(_rsa_err, ERR_reason_error_string(ERR_get_error()));
         return NULL;
     }
     ret = PyString_FromStringAndSize((const char *)tbuf, tlen);
     OPENSSL_cleanse(tbuf, tlen);
     OPENSSL_free(tbuf);
+    m2_PyBuffer_Release(digest, &dbuf);
     return ret;
 }
 
 int rsa_verify_pkcs1_pss(RSA *rsa, PyObject *digest, PyObject *signature, EVP_MD *hash, int salt_length) {
-    const void *dbuf;
-    const void *sbuf;
-    int dlen, slen, ret;
+    int ret;
+    Py_buffer dbuf, sbuf;
 
-    if (m2_PyObject_AsReadBufferInt(digest, &dbuf, &dlen) == -1) {
+    if (m2_PyObject_GetBufferInt(digest, &dbuf, PyBUF_SIMPLE) == -1) {
         return 0;
     }
-
-    if (m2_PyObject_AsReadBufferInt(signature, &sbuf, &slen) == -1) {
+    if (m2_PyObject_GetBufferInt(signature, &sbuf, PyBUF_SIMPLE) == -1) {
+        m2_PyBuffer_Release(digest, &dbuf);
         return 0;
     }
 
     ret = RSA_verify_PKCS1_PSS(
         rsa,
-        (unsigned char *)dbuf,
+        (unsigned char *)dbuf.buf,
         hash,
-        (unsigned char *)sbuf,
+        (unsigned char *)sbuf.buf,
         salt_length);
 
+    m2_PyBuffer_Release(digest, &dbuf);
+    m2_PyBuffer_Release(signature, &sbuf);
     return ret;
 }
 #endif

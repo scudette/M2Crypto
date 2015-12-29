@@ -22,33 +22,34 @@ void rc4_free(RC4_KEY *key) {
 }
 
 PyObject *rc4_set_key(RC4_KEY *key, PyObject *value) {
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
-    RC4_set_key(key, vlen, vbuf);
+    RC4_set_key(key, vbuf.len, vbuf.buf);
+    m2_PyBuffer_Release(value, &vbuf);
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 PyObject *rc4_update(RC4_KEY *key, PyObject *in) {
     PyObject *ret;
-    const void *buf;
-    Py_ssize_t len;
     void *out;
+    Py_buffer buf;
 
-    if (PyObject_AsReadBuffer(in, &buf, &len) == -1)
+    if (m2_PyObject_GetBuffer(in, &buf, PyBUF_SIMPLE) == -1)
         return NULL;
 
-    if (!(out = PyMem_Malloc(len))) {
+    if (!(out = PyMem_Malloc(buf.len))) {
         PyErr_SetString(PyExc_MemoryError, "expected a string object");
+        m2_PyBuffer_Release(in, &buf);
         return NULL;
     }
-    RC4(key, len, buf, out);
-    ret = PyString_FromStringAndSize(out, len);
+    RC4(key, buf.len, buf.buf, out);
+    ret = PyString_FromStringAndSize(out, buf.len);
     PyMem_Free(out);
+    m2_PyBuffer_Release(in, &buf);
     return ret;
 }
 

@@ -13,25 +13,70 @@
 /* Python helpers. */
 
 %}
-%ignore m2_PyObject_AsReadBufferInt;
+%ignore PyBuffer_Release;
+%ignore PyObject_CheckBuffer;
+%ignore PyObject_GetBuffer;
+%ignore m2_PyBuffer_Release;
+%ignore m2_PyObject_GetBuffer;
+%ignore m2_PyObject_GetBufferInt;
 %ignore m2_PyString_AsStringAndSizeInt;
 %{
-static int
-m2_PyObject_AsReadBufferInt(PyObject *obj, const void **buffer,
-                int *buffer_len)
-{
-    int ret;
-    Py_ssize_t len;
 
-    ret = PyObject_AsReadBuffer(obj, buffer, &len);
-    if (ret)
-        return ret;
-    if (len > INT_MAX) {
-        PyErr_SetString(PyExc_ValueError, "object too large");
-        return -1;
-    }
-    *buffer_len = len;
+
+#if PY_VERSION_HEX < 0x02060000
+static int PyObject_CheckBuffer(PyObject *obj) {
+    (void)obj;
     return 0;
+}
+
+static int PyObject_GetBuffer(PyObject *obj, Py_buffer *view, int flags) {
+    (void)obj;
+    (void)view;
+    (void)flags;
+    return -1;
+}
+
+static void PyBuffer_Release(Py_buffer *view) {
+    (void)view;
+}
+#endif /* PY_VERSION_HEX < 0x02060000 */
+
+
+static void m2_PyBuffer_Release(PyObject *obj, Py_buffer *view) {
+  if (PyObject_CheckBuffer(obj))
+    PyBuffer_Release(view);
+  /* else do nothing, view->buf comes from PyObject_AsReadBuffer */
+}
+
+static int m2_PyObject_GetBuffer(PyObject *obj, Py_buffer *view, int flags) {
+  int ret;
+
+  if (PyObject_CheckBuffer(obj))
+    ret = PyObject_GetBuffer(obj, view, flags);
+  else {
+    const void *buf;
+
+    ret = PyObject_AsReadBuffer(obj, &buf, &view->len);
+
+    if (ret == 0)
+      view->buf = (void *)buf;
+  }
+  return ret;
+}
+
+
+static int m2_PyObject_GetBufferInt(PyObject *obj, Py_buffer *view, int flags) {
+  int ret;
+
+  ret = m2_PyObject_GetBuffer(obj, view, flags);
+  if (ret)
+    return ret;
+  if (view->len > INT_MAX) {
+    PyErr_SetString(PyExc_ValueError, "object too large");
+    m2_PyBuffer_Release(obj, view);
+    return -1;
+  }
+  return 0;
 }
 
 static int
@@ -39,7 +84,6 @@ m2_PyString_AsStringAndSizeInt(PyObject *obj, char **s, int *len)
 {
     int ret;
     Py_ssize_t len2;
-
     ret = PyString_AsStringAndSize(obj, s, &len2);
     if (ret)
        return ret;
@@ -284,13 +328,15 @@ PyObject *bn_to_mpi(BIGNUM *bn) {
 }
 
 BIGNUM *mpi_to_bn(PyObject *value) {
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
+    BIGNUM *ret;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    return BN_mpi2bn(vbuf, vlen, NULL);
+    ret = BN_mpi2bn(vbuf.buf, vbuf.len, NULL);
+    m2_PyBuffer_Release(value, &vbuf);
+    return ret;
 }
 
 PyObject *bn_to_bin(BIGNUM *bn) {
@@ -310,13 +356,15 @@ PyObject *bn_to_bin(BIGNUM *bn) {
 }
 
 BIGNUM *bin_to_bn(PyObject *value) {
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
+    BIGNUM *ret;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    return BN_bin2bn(vbuf, vlen, NULL);
+    ret = BN_bin2bn(vbuf.buf, vbuf.len, NULL);
+    m2_PyBuffer_Release(value, &vbuf);
+    return ret;
 }
 
 PyObject *bn_to_hex(BIGNUM *bn) {
@@ -338,44 +386,48 @@ PyObject *bn_to_hex(BIGNUM *bn) {
 }
 
 BIGNUM *hex_to_bn(PyObject *value) {
-    const void *vbuf;
-    Py_ssize_t vlen;
+    Py_buffer vbuf;
     BIGNUM *bn;
 
-    if (PyObject_AsReadBuffer(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBuffer(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
     if ((bn=BN_new())==NULL) {
         PyErr_SetString(PyExc_MemoryError, "hex_to_bn");
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
-    if (BN_hex2bn(&bn, (const char *)vbuf) <= 0) {
+    if (BN_hex2bn(&bn, (const char *)vbuf.buf) <= 0) {
         PyErr_SetString(PyExc_RuntimeError, 
               ERR_error_string(ERR_get_error(), NULL));
         BN_free(bn);
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
+    m2_PyBuffer_Release(value, &vbuf);
     return bn;
 }
 
 BIGNUM *dec_to_bn(PyObject *value) {
-    const void *vbuf;
-    Py_ssize_t vlen;
+    Py_buffer vbuf;
     BIGNUM *bn;
 
-    if (PyObject_AsReadBuffer(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBuffer(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
     if ((bn=BN_new())==NULL) {
       PyErr_SetString(PyExc_MemoryError, "dec_to_bn");
+      m2_PyBuffer_Release(value, &vbuf);
       return NULL;
     }
-    if ((BN_dec2bn(&bn, (const char *)vbuf) <= 0)) {
+    if ((BN_dec2bn(&bn, (const char *)vbuf.buf) <= 0)) {
       PyErr_SetString(PyExc_RuntimeError, 
             ERR_error_string(ERR_get_error(), NULL));
       BN_free(bn);
+      m2_PyBuffer_Release(value, &vbuf);
       return NULL;
     }
+    m2_PyBuffer_Release(value, &vbuf);
     return bn;
 }
 %}

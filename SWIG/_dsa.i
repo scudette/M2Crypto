@@ -99,57 +99,60 @@ PyObject *dsa_get_priv(DSA *dsa) {
 
 PyObject *dsa_set_p(DSA *dsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)vbuf.buf, vbuf.len, NULL))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (dsa->p)
         BN_free(dsa->p);
     dsa->p = bn;
+    m2_PyBuffer_Release(value, &vbuf);
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 PyObject *dsa_set_q(DSA *dsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        return NULL;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)vbuf.buf, vbuf.len, NULL))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (dsa->q)
         BN_free(dsa->q);
     dsa->q = bn;
+    m2_PyBuffer_Release(value, &vbuf);
     Py_INCREF(Py_None);
     return Py_None;
 }
 
 PyObject *dsa_set_g(DSA *dsa, PyObject *value) {
     BIGNUM *bn;
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
-    if (!(bn = BN_mpi2bn((unsigned char *)vbuf, vlen, NULL))) {
+    if (!(bn = BN_mpi2bn((unsigned char *)vbuf.buf, vbuf.len, NULL))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (dsa->g)
         BN_free(dsa->g);
     dsa->g = bn;
+    m2_PyBuffer_Release(value, &vbuf);
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -236,97 +239,124 @@ DSA *dsa_read_pub_key(BIO *f, PyObject *pyfunc) {
 }
 
 PyObject *dsa_sign(DSA *dsa, PyObject *value) {
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
     PyObject *tuple;
     DSA_SIG *sig; 
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
-    if (!(sig = DSA_do_sign(vbuf, vlen, dsa))) {
+    if (!(sig = DSA_do_sign(vbuf.buf, vbuf.len, dsa))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     if (!(tuple = PyTuple_New(2))) {
         DSA_SIG_free(sig);
         PyErr_SetString(PyExc_RuntimeError, "PyTuple_New() fails");
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     PyTuple_SET_ITEM(tuple, 0, dsa_sig_get_r(sig));
     PyTuple_SET_ITEM(tuple, 1, dsa_sig_get_s(sig));
     DSA_SIG_free(sig);
+    m2_PyBuffer_Release(value, &vbuf);
     return tuple;
 }
 
 int dsa_verify(DSA *dsa, PyObject *value, PyObject *r, PyObject *s) {
-    const void *vbuf, *rbuf, *sbuf;
-    int vlen, rlen, slen;
+    Py_buffer vbuf, rbuf, sbuf;
     DSA_SIG *sig;
     int ret;
 
-    if ((m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        || (m2_PyObject_AsReadBufferInt(r, &rbuf, &rlen) == -1)
-        || (m2_PyObject_AsReadBufferInt(s, &sbuf, &slen) == -1))
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
         return -1;
+    if (m2_PyObject_GetBufferInt(r, &rbuf, PyBUF_SIMPLE) == -1) {
+        m2_PyBuffer_Release(value, &vbuf);
+        return -1;
+    }
+    if (m2_PyObject_GetBufferInt(s, &sbuf, PyBUF_SIMPLE) == -1) {
+        m2_PyBuffer_Release(value, &vbuf);
+        m2_PyBuffer_Release(r, &rbuf);
+        return -1;
+    }
 
     if (!(sig = DSA_SIG_new())) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+        m2_PyBuffer_Release(value, &vbuf);
+        m2_PyBuffer_Release(r, &rbuf);
+        m2_PyBuffer_Release(s, &sbuf);
         return -1;
     }
-    if (!(sig->r = BN_mpi2bn((unsigned char *)rbuf, rlen, NULL))) {
+    if (!(sig->r = BN_mpi2bn((unsigned char *)rbuf.buf, rbuf.len, NULL))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
         DSA_SIG_free(sig);
+        m2_PyBuffer_Release(value, &vbuf);
+        m2_PyBuffer_Release(r, &rbuf);
+        m2_PyBuffer_Release(s, &sbuf);
         return -1;
     }
-    if (!(sig->s = BN_mpi2bn((unsigned char *)sbuf, slen, NULL))) {
+    if (!(sig->s = BN_mpi2bn((unsigned char *)sbuf.buf, sbuf.len, NULL))) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
         DSA_SIG_free(sig);
+        m2_PyBuffer_Release(value, &vbuf);
+        m2_PyBuffer_Release(r, &rbuf);
+        m2_PyBuffer_Release(s, &sbuf);
         return -1;
     }
-    ret = DSA_do_verify(vbuf, vlen, sig, dsa);
+    ret = DSA_do_verify(vbuf.buf, vbuf.len, sig, dsa);
     DSA_SIG_free(sig);
     if (ret == -1)
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+    m2_PyBuffer_Release(value, &vbuf);
+    m2_PyBuffer_Release(r, &rbuf);
+    m2_PyBuffer_Release(s, &sbuf);
     return ret;
 }
 
 PyObject *dsa_sign_asn1(DSA *dsa, PyObject *value) {
-    const void *vbuf;
-    int vlen;
+    Py_buffer vbuf;
     void *sigbuf;
     unsigned int siglen;
     PyObject *ret;
 
-    if (m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
         return NULL;
 
     if (!(sigbuf = PyMem_Malloc(DSA_size(dsa)))) {
         PyErr_SetString(PyExc_MemoryError, "dsa_sign_asn1");
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
-    if (!DSA_sign(0, vbuf, vlen, (unsigned char *)sigbuf, &siglen, dsa)) {
+    if (!DSA_sign(0, vbuf.buf, vbuf.len,
+                  (unsigned char *)sigbuf, &siglen, dsa)) {
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
         PyMem_Free(sigbuf);
+        m2_PyBuffer_Release(value, &vbuf);
         return NULL;
     }
     ret = PyString_FromStringAndSize(sigbuf, siglen);
     PyMem_Free(sigbuf);
+    m2_PyBuffer_Release(value, &vbuf);
     return ret;
 }
 
 int dsa_verify_asn1(DSA *dsa, PyObject *value, PyObject *sig) {
-    const void *vbuf; 
-    void *sbuf;
-    int vlen, slen, ret;
+    int ret;
+    Py_buffer vbuf, sbuf;
 
-    if ((m2_PyObject_AsReadBufferInt(value, &vbuf, &vlen) == -1)
-        || (m2_PyObject_AsReadBufferInt(sig, (const void **)&sbuf, &slen)
-        == -1))
-        return -1;
+    if (m2_PyObject_GetBufferInt(value, &vbuf, PyBUF_SIMPLE) == -1)
+      return -1;
+    if (m2_PyObject_GetBufferInt(sig, &sbuf, PyBUF_SIMPLE) == -1) {
+      m2_PyBuffer_Release(value, &vbuf);
+      return -1;
+    }
 
-    if ((ret = DSA_verify(0, vbuf, vlen, sbuf, slen, dsa)) == -1)
+    if ((ret = DSA_verify(0, (const void *) vbuf.buf, vbuf.len,
+                          (void *) sbuf.buf, sbuf.len, dsa)) == -1)
         PyErr_SetString(_dsa_err, ERR_reason_error_string(ERR_get_error()));
+    m2_PyBuffer_Release(value, &vbuf);
+    m2_PyBuffer_Release(sig, &sbuf);
     return ret;
 }
 
