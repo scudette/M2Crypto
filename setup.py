@@ -153,14 +153,6 @@ class _M2CryptoBuildExt(build_ext.build_ext):
 
         self.library_dirs += [os.path.join(self.openssl, opensslLibraryDir)]
 
-    def run(self):
-        """Copy the dlls from the system into our package."""
-        for dep in get_all_globs(OPENSSL_RUNTIME_LIBS):
-            print "Copy %s" % dep
-            shutil.copy(dep, "M2Crypto")
-
-        build_ext.build_ext.run(self)
-
 
 if sys.platform == 'darwin':
     my_extra_compile_args = ["-Wno-deprecated-declarations"]
@@ -201,12 +193,25 @@ class CustomSDist(sdist.sdist):
         subprocess.check_call(
             swig_opts + ["-o", "SWIG/_m2crypto_wrap.c", "SWIG/_m2crypto.i"])
 
+        # Clean up any residual .so .dll etc:
+        for f in get_all_globs(["M2Crypto/*.dll",
+                                "M2Crypto/*.so",
+                                "M2Crypto/*.dylib"]):
+            os.unlink(f)
+
         sdist.sdist.run(self)
 
 
+def copy_dlls():
+    for dep in get_all_globs(OPENSSL_RUNTIME_LIBS):
+        print "Copy %s" % dep
+        shutil.copy(dep, "M2Crypto")
+
+copy_dlls()
+
 
 setup(name='GRR-M2Crypto',
-      version='0.22.6',
+      version='0.22.6.post2',
       description='M2Crypto: A Python crypto and SSL toolkit',
       long_description='''\
 M2Crypto is the most complete Python wrapper for OpenSSL featuring RSA, DSA,
