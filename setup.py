@@ -42,7 +42,7 @@ import glob
 import re
 import shutil
 import subprocess
-import os, sys, platform
+import os, sys
 from setuptools import setup
 from setuptools.command import build_ext
 from setuptools.command import sdist
@@ -62,11 +62,23 @@ else:
     OPENSSL_INSTALL_PATH = os.environ.get("OPENSSL_INSTALL_PATH",
                                           "/usr/")
 
-    OPENSSL_RUNTIME_LIBS = [os.path.join(OPENSSL_INSTALL_PATH, "lib",
-                                         "libssl.so*"),
-                            os.path.join(OPENSSL_INSTALL_PATH, "lib",
-                                         "libcrypto.so*"),
-                           ]
+    OPENSSL_RUNTIME_LIBS = [
+        os.path.join(OPENSSL_INSTALL_PATH, "lib", "libssl.so*"),
+        os.path.join(OPENSSL_INSTALL_PATH, "lib", "libcrypto.so*"),
+    ]
+
+DEB_HOST_MULTIARCH = None
+try:
+    DEB_HOST_MULTIARCH = subprocess.check_output(
+        ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"]).strip()
+
+    DEB_HOST_MULTIARCH_PATH = os.path.join("/usr/lib/", DEB_HOST_MULTIARCH)
+    OPENSSL_RUNTIME_LIBS.extend([
+        os.path.join(DEB_HOST_MULTIARCH_PATH, "libssl.so*"),
+        os.path.join(DEB_HOST_MULTIARCH_PATH, "libcrypto.so*"),
+    ])
+except Exception:
+    pass
 
 
 def get_all_globs(globs):
@@ -177,11 +189,8 @@ class CustomSDist(sdist.sdist):
             raise RuntimeError("Swig version must be < 3.0.2.")
 
         swig_opts = ["swig", "-python"]
-        try:
-            swig_opts.append("-I/usr/include/%s" % subprocess.check_output(
-                ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"]).strip())
-        except Exception:
-            pass
+        if DEB_HOST_MULTIARCH:
+            swig_opts.append("-I/usr/include/%s" % DEB_HOST_MULTIARCH)
 
         swig_opts.append("-I%s" % os.path.join(OPENSSL_INSTALL_PATH, 'include'))
         swig_opts.append("-I%s" % os.path.join(OPENSSL_INSTALL_PATH, 'include',
@@ -197,7 +206,7 @@ class CustomSDist(sdist.sdist):
 
 
 setup(name='GRR-M2Crypto',
-      version='0.22.5',
+      version='0.22.6',
       description='M2Crypto: A Python crypto and SSL toolkit',
       long_description='''\
 M2Crypto is the most complete Python wrapper for OpenSSL featuring RSA, DSA,
