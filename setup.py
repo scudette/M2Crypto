@@ -39,10 +39,13 @@ python setup.py install bdist_wheel
 
 """
 import glob
+import re
 import shutil
+import subprocess
 import os, sys, platform
 from setuptools import setup
 from setuptools.command import build_ext
+from setuptools.command import sdist
 
 from setuptools import Extension
 from distutils.spawn import find_executable
@@ -74,18 +77,9 @@ def get_all_globs(globs):
     return result
 
 
-def copy_dlls():
-    """Copy the dlls from the system into our package."""
-    for dep in get_all_globs(OPENSSL_RUNTIME_LIBS):
-        print "Copy %s" % dep
-        shutil.copy(dep, "M2Crypto")
-
-
 class _M2CryptoBuildExt(build_ext.build_ext):
     '''Specialization of build_ext to enable swig_opts to inherit any
     include_dirs settings made at the command line or in a setup.cfg file'''
-    user_options = build_ext.build_ext.user_options + \
-            [('openssl=', 'o', 'Prefix for OpenSSL installation location')]
 
     def initialize_options(self):
         '''Overload to enable custom OpenSSL settings to be picked up'''
@@ -123,7 +117,6 @@ class _M2CryptoBuildExt(build_ext.build_ext):
         finally:
             os.unlink(tmpfile)
 
-
     def finalize_options(self):
         '''Overloaded build_ext implementation to append custom openssl
         include file and library linking options'''
@@ -134,19 +127,6 @@ class _M2CryptoBuildExt(build_ext.build_ext):
 
         opensslIncludeDir = os.path.join(self.openssl, 'include')
         opensslLibraryDir = os.path.join(self.openssl, 'lib')
-
-        self.swig_opts = [
-            '-I%s' % i for i in self.include_dirs + \
-            [opensslIncludeDir, os.path.join(opensslIncludeDir, "openssl")]]
-        self.swig_opts.append('-includeall')
-        self.swig_opts.append('-modern')
-
-        # Fedora does hat tricks.
-        if os.path.isfile('/etc/redhat-release'):
-            if platform.architecture()[0] == '64bit':
-                self.swig_opts.append('-D__x86_64__')
-            elif platform.architecture()[0] == '32bit':
-                self.swig_opts.append('-D__i386__')
 
         self.include_dirs += [os.path.join(self.openssl, opensslIncludeDir),
                               os.path.join(os.getcwd(), 'SWIG')]
@@ -161,21 +141,63 @@ class _M2CryptoBuildExt(build_ext.build_ext):
 
         self.library_dirs += [os.path.join(self.openssl, opensslLibraryDir)]
 
+    def run(self):
+        """Copy the dlls from the system into our package."""
+        for dep in get_all_globs(OPENSSL_RUNTIME_LIBS):
+            print "Copy %s" % dep
+            shutil.copy(dep, "M2Crypto")
+
+        build_ext.build_ext.run(self)
+
+
 if sys.platform == 'darwin':
     my_extra_compile_args = ["-Wno-deprecated-declarations"]
 else:
     my_extra_compile_args = []
 
 m2crypto = Extension(name='M2Crypto.__m2crypto',
-                     sources=['SWIG/_m2crypto.i'],
+                     sources=['SWIG/_m2crypto_wrap.c'],
                      extra_compile_args=['-DTHREADING'] + my_extra_compile_args,
                     )
 
 
-copy_dlls()
+class CustomSDist(sdist.sdist):
+    """Swig the sources when creating the sdist.
+
+    When we install we only depend on the generated C files and not on
+    swig. This makes it much easier to install since we do not need to have swig
+    installed. Additionally, this version of M2Crypto requires an older version
+    of swig or it will produce broken code.
+    """
+    def run(self):
+        # Check the swig version.
+        output = subprocess.check_output(["swig", "-version"])
+        m = re.search("SWIG Version +([^ ]+)", output)
+        if not m:
+            raise RuntimeError("Swig version must be < 3.0.2.")
+
+        swig_opts = ["swig", "-python"]
+        try:
+            swig_opts.append("-I/usr/include/%s" % subprocess.check_output(
+                ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"]).strip())
+        except Exception:
+            pass
+
+        swig_opts.append("-I%s" % os.path.join(OPENSSL_INSTALL_PATH, 'include'))
+        swig_opts.append("-I%s" % os.path.join(OPENSSL_INSTALL_PATH, 'include',
+                                               "openssl"))
+        swig_opts.append('-includeall')
+        swig_opts.append('-modern')
+
+        subprocess.check_call(
+            swig_opts + ["-o", "SWIG/_m2crypto_wrap.c", "SWIG/_m2crypto.i"])
+
+        sdist.sdist.run(self)
+
+
 
 setup(name='GRR-M2Crypto',
-      version='0.22.3',
+      version='0.22.5',
       description='M2Crypto: A Python crypto and SSL toolkit',
       long_description='''\
 M2Crypto is the most complete Python wrapper for OpenSSL featuring RSA, DSA,
@@ -217,10 +239,13 @@ https://github.com/google/grr
       test_suite='test.alltests.suite',
       zip_safe=False,
       include_package_data=True,
-      cmdclass={'build_ext': _M2CryptoBuildExt},
+      cmdclass=dict(
+          build_ext=_M2CryptoBuildExt,
+          sdist=CustomSDist,
+      ),
       # Copy the openssl dlls into the package. This ensures they are
       # included in binary packages.
       package_data={
-          "M2Crypto": [r"*.dll", "*.so*"],
+          "M2Crypto": [r"*.dll", "*.so*", "*.dylib"],
       }
      )
